@@ -4,9 +4,14 @@ public class CellClick : MonoBehaviour
 {
     public int row;
     public int col;
+
+    public bool isEnemyCell;
+
     public GridGenerator gridGenerator;
 
-    private Renderer rend;
+    Renderer rend;
+
+    bool clicked = false;
 
     void Start()
     {
@@ -15,68 +20,216 @@ public class CellClick : MonoBehaviour
 
     void OnMouseDown()
     {
-        if (GameManager.currentState == GameState.PlacingShips)
+        // -------------------------
+        // РОЗСТАНОВКА КОРАБЛІВ
+        // -------------------------
+
+        if (GameManager.currentState ==
+            GameState.PlacingShips)
         {
-            TryPlaceShip();
+            // тільки поле гравця
+            if (isEnemyCell) return;
+
+            // всі кораблі вже поставлені
+            if (GameManager.instance.currentShipIndex >=
+                GameManager.instance.ships.Length)
+                return;
+
+            int shipSize =
+                GameManager.instance.ships[
+                    GameManager.instance.currentShipIndex];
+
+            bool horizontal =
+                GameManager.instance.horizontalPlacement;
+
+            // не можна поставити
+            if (!CanPlaceShip(shipSize, horizontal))
+                return;
+
+            // ставимо корабель
+            for (int i = 0; i < shipSize; i++)
+            {
+                int x = horizontal ? row + i : row;
+                int z = horizontal ? col : col + i;
+
+                gridGenerator.grid[x, z] = 1;
+
+                GameObject cell =
+                    gridGenerator.cells[x, z];
+
+                cell.GetComponent<Renderer>()
+                    .material.color = Color.green;
+            }
+
+            GameManager.instance.currentShipIndex++;
+
+            GameManager.instance.UpdateUI();
+
+            return;
         }
-        else if (GameManager.currentState == GameState.Playing)
+
+        // -------------------------
+        // ГРА
+        // -------------------------
+
+        if (!isEnemyCell) return;
+
+        if (!GameManager.instance.playerTurn)
+            return;
+
+        if (clicked) return;
+
+        clicked = true;
+
+        gridGenerator.hits[row, col] = true;
+
+        bool hit = false;
+
+        // HIT
+        if (gridGenerator.grid[row, col] == 1)
         {
-            Shoot();
+            rend.material.color = Color.red;
+
+            GameManager.instance.RegisterHit();
+
+            hit = true;
+
+            if (IsShipDestroyed(row, col))
+            {
+                OpenCellsAroundShip(row, col);
+            }
         }
+        // MISS
+        else
+        {
+            rend.material.color = Color.blue;
+        }
+
+        GameManager.instance.RegisterShot(hit);
     }
 
-    void TryPlaceShip()
+    bool CanPlaceShip(int size, bool horizontal)
     {
-        if (GameManager.currentShipIndex >= GameManager.shipsToPlace.Length)
-            return;
-
-        if (gridGenerator.grid[row, col] == 1)
-            return;
-
-        // перевірка сусідів
-        for (int dx = -1; dx <= 1; dx++)
+        for (int i = 0; i < size; i++)
         {
-            for (int dz = -1; dz <= 1; dz++)
-            {
-                int nx = row + dx;
-                int nz = col + dz;
+            int x = horizontal ? row + i : row;
+            int z = horizontal ? col : col + i;
 
-                if (nx >= 0 && nx < gridGenerator.width &&
-                    nz >= 0 && nz < gridGenerator.height)
+            if (x >= 10 || z >= 10)
+                return false;
+
+            for (int dx = -1; dx <= 1; dx++)
+            {
+                for (int dz = -1; dz <= 1; dz++)
                 {
+                    int nx = x + dx;
+                    int nz = z + dz;
+
+                    if (nx < 0 || nx >= 10 ||
+                        nz < 0 || nz >= 10)
+                        continue;
+
                     if (gridGenerator.grid[nx, nz] == 1)
-                        return;
+                        return false;
                 }
             }
         }
 
-        // ставимо 1 клітинку (поки без напрямку)
-        gridGenerator.grid[row, col] = 1;
-        rend.material.color = Color.green;
-
-        GameManager.totalShipCells++;
-        GameManager.currentShipIndex++;
-
-        Debug.Log("Ship part placed");
+        return true;
     }
 
-    void Shoot()
+    bool IsShipDestroyed(int x, int z)
     {
-        if (gridGenerator.hits[row, col])
-            return;
-
-        gridGenerator.hits[row, col] = true;
-
-        if (gridGenerator.grid[row, col] == 1)
+        int[,] directions =
         {
-            rend.material.color = Color.red;
-            Debug.Log("HIT!");
-            GameManager.RegisterHit();
+            {1, 0},
+            {-1, 0},
+            {0, 1},
+            {0, -1}
+        };
+
+        for (int i = 0; i < 4; i++)
+        {
+            int dx = directions[i, 0];
+            int dz = directions[i, 1];
+
+            int checkX = x;
+            int checkZ = z;
+
+            while (true)
+            {
+                checkX += dx;
+                checkZ += dz;
+
+                if (checkX < 0 || checkX >= 10 ||
+                    checkZ < 0 || checkZ >= 10)
+                    break;
+
+                if (gridGenerator.grid[checkX, checkZ] == 0)
+                    break;
+
+                if (!gridGenerator.hits[checkX, checkZ])
+                    return false;
+            }
         }
-        else
+
+        return true;
+    }
+
+    void OpenCellsAroundShip(int x, int z)
+    {
+        int minX = x;
+        int maxX = x;
+
+        int minZ = z;
+        int maxZ = z;
+
+        while (minX > 0 &&
+               gridGenerator.grid[minX - 1, z] == 1)
         {
-            rend.material.color = Color.blue;
-            Debug.Log("MISS!");
+            minX--;
+        }
+
+        while (maxX < 9 &&
+               gridGenerator.grid[maxX + 1, z] == 1)
+        {
+            maxX++;
+        }
+
+        while (minZ > 0 &&
+               gridGenerator.grid[x, minZ - 1] == 1)
+        {
+            minZ--;
+        }
+
+        while (maxZ < 9 &&
+               gridGenerator.grid[x, maxZ + 1] == 1)
+        {
+            maxZ++;
+        }
+
+        for (int i = minX - 1; i <= maxX + 1; i++)
+        {
+            for (int j = minZ - 1; j <= maxZ + 1; j++)
+            {
+                if (i < 0 || i >= 10 ||
+                    j < 0 || j >= 10)
+                    continue;
+
+                if (gridGenerator.grid[i, j] == 0)
+                {
+                    gridGenerator.hits[i, j] = true;
+
+                    GameObject cell =
+                        gridGenerator.cells[i, j];
+
+                    Renderer cellRenderer =
+                        cell.GetComponent<Renderer>();
+
+                    cellRenderer.material.color =
+                        Color.blue;
+                }
+            }
         }
     }
 }
